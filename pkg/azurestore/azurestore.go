@@ -39,6 +39,7 @@ func (store AzureStore) UseIn(composer *handler.StoreComposer) {
 	composer.UseCore(store)
 	composer.UseTerminater(store)
 	composer.UseLengthDeferrer(store)
+	composer.UseConcater(store)
 }
 
 func (store AzureStore) NewUpload(ctx context.Context, info handler.FileInfo) (handler.Upload, error) {
@@ -230,4 +231,46 @@ func (store *AzureStore) keyWithPrefix(key string) string {
 	}
 
 	return prefix + key
+}
+
+// AsConcatableUpload implements handler.ConcaterDataStore.
+func (AzureStore) AsConcatableUpload(upload handler.Upload) handler.ConcatableUpload {
+	return upload.(*AzUpload)
+}
+
+// ConcatUploads implements handler.ConcatableUpload.
+func (upload *AzUpload) ConcatUploads(ctx context.Context, partialUploads []handler.Upload) error {
+	for _, partialUpload := range partialUploads {
+		_, err := partialUpload.GetInfo(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	return upload.concatUsingMultipart(ctx, partialUploads)
+}
+
+func (upload *AzUpload) concatUsingMultipart(ctx context.Context, partialUploads []handler.Upload) error {
+	// Copy partial uploads concurrently
+	for _, partialUpload := range partialUploads {
+		partialAZUpload := partialUpload.(*AzUpload)
+
+		offset, err := partialAZUpload.InfoBlob.GetOffset(ctx)
+		if err != nil {
+			return err
+		}
+
+		reader, err := partialAZUpload.BlockBlob.Download(ctx)
+		if err != nil {
+			return err
+		}
+
+		_, err = upload.WriteChunk(ctx, offset, reader)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return upload.FinishUpload(ctx)
 }
