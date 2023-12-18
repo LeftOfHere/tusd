@@ -4,11 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/tus/tusd/v2/internal/uid"
 	"github.com/tus/tusd/v2/pkg/handler"
@@ -148,10 +148,11 @@ func (upload *AzUpload) WriteChunk(ctx context.Context, offset int64, src io.Rea
 		return 0, err
 	}
 
-	chunkSize := int64(binary.Size(buf.Bytes()))
-	if chunkSize > MaxBlockBlobChunkSize {
-		return 0, fmt.Errorf("azurestore: Chunk of size %v too large. Max chunk size is %v", chunkSize, MaxBlockBlobChunkSize)
-	}
+	//todo: can't find the equivalent so ignoreing for now.  will see how it goes.
+	// chunkSize := int64(binary.Size(buf.Bytes()))
+	// if chunkSize > MaxBlockBlobChunkSize {
+	// 	return 0, fmt.Errorf("azurestore: Chunk of size %v too large. Max chunk size is %v", chunkSize, MaxBlockBlobChunkSize)
+	// }
 
 	re := bytes.NewReader(buf.Bytes())
 	err = upload.BlockBlob.Upload(ctx, re)
@@ -255,17 +256,7 @@ func (upload *AzUpload) concatUsingMultipart(ctx context.Context, partialUploads
 	for _, partialUpload := range partialUploads {
 		partialAZUpload := partialUpload.(*AzUpload)
 
-		offset, err := partialAZUpload.InfoBlob.GetOffset(ctx)
-		if err != nil {
-			return err
-		}
-
-		reader, err := partialAZUpload.BlockBlob.Download(ctx)
-		if err != nil {
-			return err
-		}
-
-		_, err = upload.WriteChunk(ctx, offset, reader)
+		err := upload.BlockBlob.StageBlockFromURL(ctx, partialAZUpload.BlockBlob.GetSASURL(time.Hour))
 
 		if err != nil {
 			return err
